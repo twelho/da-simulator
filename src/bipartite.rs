@@ -1,32 +1,44 @@
-use petgraph::{Graph, Undirected};
+use std::iter;
 use crate::{InitInfo, Message, PnAlgorithm, State};
 
 pub struct BipartiteMaximalMatching;
 
-#[derive(Debug)]
-pub enum BipartiteState {
-    None, // TODO
+#[derive(Clone, Debug, PartialEq)]
+pub enum BpState {
+    None,
+    Some,
 }
 
-impl State for BipartiteState {}
-
-#[derive(Debug)]
-pub enum BipartiteMessage {
-    None, // TODO
+impl State for BpState {
+    fn is_output(&self) -> bool {
+        *self == Self::Some
+    }
 }
 
-impl Message for BipartiteMessage {}
+#[derive(Clone, Debug)]
+pub enum BpMessage {
+    None,
+    Some,
+}
 
-impl PnAlgorithm<BipartiteState, BipartiteMessage> for BipartiteMaximalMatching {
-    fn init(info: &InitInfo) -> BipartiteState {
-        BipartiteState::None // TODO
+impl Message for BpMessage {}
+
+impl PnAlgorithm<BpState, BpMessage> for BipartiteMaximalMatching {
+    // `impl` convenience requires #![feature(type_alias_impl_trait)] and nightly Rust for now
+    type MsgIter = impl Iterator<Item=BpMessage>;
+
+    fn init(info: &InitInfo) -> BpState {
+        BpState::None // TODO
     }
 
-    fn send<const D: usize>(state: &BipartiteState) -> [BipartiteMessage; D] {
-        todo!()
+    fn send(state: &BpState) -> Self::MsgIter {
+        Box::new(iter::repeat(BpMessage::Some)) // TODO
     }
 
-    fn receive<const D: usize>(state: BipartiteState, messages: [BipartiteMessage; D]) -> BipartiteState {
-        todo!()
+    fn receive(state: &BpState, mut messages: impl Iterator<Item=BpMessage>) -> BpState {
+        match messages.last() {
+            None => BpState::None,
+            Some(_) => BpState::Some,
+        }
     }
 }

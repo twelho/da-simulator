@@ -1,40 +1,49 @@
+#![feature(type_alias_impl_trait)]
+
 mod bipartite;
 
 use std::{cmp, fmt, thread};
 use std::borrow::BorrowMut;
+use std::cell::RefCell;
 use std::collections::{HashSet, VecDeque};
 use std::marker::PhantomData;
+use std::rc::Rc;
+use std::sync::{Arc, Barrier, Condvar};
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
+use std::thread::Thread;
+use std::time::{Duration, Instant};
 use petgraph::dot::{Config, Dot};
 use petgraph::graph::{DefaultIx, EdgeReference};
 use petgraph::prelude::*;
-use crossbeam_channel::bounded;
+use crossbeam_channel::{bounded, RecvError, RecvTimeoutError, SendError, SendTimeoutError};
 use crossbeam_channel::{Sender, Receiver};
 use petgraph::IntoWeightedEdge;
 use petgraph::visit::IntoEdgeReferences;
-use crate::bipartite::{BipartiteMaximalMatching, BipartiteMessage, BipartiteState};
+use crate::bipartite::{BipartiteMaximalMatching, BpMessage, BpState};
 
-trait Message: fmt::Debug {}
+trait Message: fmt::Debug + Send {}
 
-trait State: fmt::Debug + Send {}
+trait State: Clone + fmt::Debug + PartialEq + Send {
+    /// Determines if this state is a stopping state
+    fn is_output(&self) -> bool;
+}
 
 #[derive(Debug)]
 struct Edge<M: Message> {
-    channel: Option<(Sender<M>, Receiver<M>)>,
-    connected: bool,
+    channel: RefCell<Option<(Sender<M>, Receiver<M>)>>,
+    connected: RefCell<bool>,
 }
 
 impl<M: Message> Edge<M> {
-    fn endpoint(&mut self) -> (Sender<M>, Receiver<M>) {
-        assert!(!self.connected, "attempt to acquire third endpoint for edge");
-
+    fn endpoint(&self) -> (Sender<M>, Receiver<M>) {
         if let Some((s, r)) = self.channel.take() {
-            self.connected = true;
+            assert!(!self.connected.replace(true), "attempt to acquire third endpoint for edge");
             return (s, r);
         }
 
         let (s1, r1) = bounded(1);
         let (s2, r2) = bounded(1);
-        self.channel = Some((s1, r2));
+        self.channel.replace(Some((s1, r2)));
         (s2, r1)
     }
 }
@@ -42,8 +51,8 @@ impl<M: Message> Edge<M> {
 impl<M: Message> Default for Edge<M> {
     fn default() -> Self {
         Self {
-            connected: bool::default(),
-            channel: Option::default(),
+            channel: RefCell::default(),
+            connected: RefCell::default(),
         }
     }
 }
@@ -59,18 +68,24 @@ struct InitInfo {
 }
 
 trait PnAlgorithm<S: State, M: Message> {
+    type MsgIter: Iterator<Item=M>;
+
     fn init(info: &InitInfo) -> S;
-    fn send<const D: usize>(state: &S) -> [M; D];
-    fn receive<const D: usize>(state: S, messages: [M; D]) -> S;
+    fn send(state: &S) -> Self::MsgIter;
+
+    /// PN state machine receive function. Implementors MUST consume all messages,
+    /// otherwise execution of the algorithm will deadlock (for obvious reasons).
+    fn receive(state: &S, messages: impl Iterator<Item=M>) -> S;
 }
 
 struct PnSimulator<A: PnAlgorithm<S, M>, S: State, M: Message> {
     a: PhantomData<A>,
     graph: Graph<S, Edge<M>, Undirected>,
+    timeout: Duration,
 }
 
 impl<A: PnAlgorithm<S, M>, S: State, M: Message> PnSimulator<A, S, M> {
-    fn from_network(edges: &[(u32, u32)]) -> Self {
+    fn from_network(edges: &[(u32, u32)], timeout: Duration) -> Self {
         let node_count = 1 + edges
             .iter()
             .map(|(a, b)| a.max(b))
@@ -108,6 +123,7 @@ impl<A: PnAlgorithm<S, M>, S: State, M: Message> PnSimulator<A, S, M> {
         Self {
             a: PhantomData,
             graph,
+            timeout,
         }
     }
 
@@ -119,64 +135,92 @@ impl<A: PnAlgorithm<S, M>, S: State, M: Message> PnSimulator<A, S, M> {
     }
 
     fn run(&mut self) {
-        // TODO: Edge "weights" (endpoint() calls) need to happen before giving the graph to node_weights_mut()
+        // Acquire the communication channels between nodes from the edges
+        let channels: Vec<(Vec<_>, Vec<_>)> = self.graph.node_indices()
+            .map(|i| self.edges(i).iter().map(|e| e.weight().endpoint()).unzip())
+            .collect();
 
-        // TODO: This won't work since e.endpoint() needs to be invoked twice per edge, the interior
-        //  mutability pattern would work much better here, and then we don't need to deal with
-        //  edge_weights_mut etc.
-        let endpoints = self.graph.edge_weights_mut().map(|e| Some(e.endpoint())).collect::<Vec<_>>();
-
-        // let r = (0..self.graph.node_count()).map(|index| {
-        //     let edges = self.edges((index as u32).into());
-        //
-        //     self.graph.edge_references()
-        //
-        //     edges.clone()
-        //         .iter()
-        //         .map(|a| a.id())
-        //         .map(|a| {
-        //             let b = self.graph.edge_weight_mut(a).expect("non-existent edge").endpoint();
-        //             b
-        //         }).collect::<Vec<_>>()
-        // });
-
-        let states = self.graph.node_indices().zip(self.graph.node_weights_mut());
-
+        let node_count = self.graph.node_count();
+        let stop_count = Arc::new(AtomicU32::new(0));
 
         thread::scope(|s| {
-            states.for_each(|(index, state)| {
-                let edges: Vec<_> = self.edges(index).into_iter().map(|e| e.id()).collect();
+            self.graph
+                .node_weights_mut()
+                .zip(channels.into_iter())
+                .enumerate()
+                .for_each(|(_, (state, (senders, receivers)))| {
+                    let stop_atomic = Arc::clone(&stop_count);
+                    let deadline = Instant::now() + self.timeout;
 
-                let (senders, receivers) = edges.iter().map(|i| {
-                    endpoints[i.index()]
-                        .take().expect("???")
-                }).unzip();
+                    s.spawn(move || {
+                        let mut stopping_state: Option<S> = None;
 
-                let senders: Vec<_> = edges.iter().map(|i| senders[i.index()]).collect();
-                let receivers: Vec<_> = edges.iter().map(|i| receivers[i.index()]).collect();
+                        loop {
+                            let result = senders
+                                .iter()
+                                .zip(A::send(&state))
+                                .map(|(s, m)| s.send_deadline(m, deadline))
+                                .collect::<Result<(), _>>().err();
 
-                let channels = edges
-                    .into_iter()
-                    .map(|a| self.graph.edge_weight_mut(a).expect("non-existent edge").endpoint());
+                            match result {
+                                None => {}
+                                Some(e) => {
+                                    if let SendTimeoutError::Timeout(_) = e {
+                                        println!("Deadlock!")
+                                    }
 
-                // senders.for_each(|s| );
+                                    // Message channel was closed, execution finished
+                                    break;
+                                }
+                            }
 
-                s.spawn(move || {
-                    // *s += 1;
-                    println!("Thing: {:?}", state);
+                            let messages = receivers
+                                .iter()
+                                .map(|r| r.recv_deadline(deadline))
+                                .collect::<Result<Vec<_>, _>>();
+
+                            match messages {
+                                Ok(m) => *state = A::receive(&state, m.into_iter()),
+                                Err(e) => {
+                                    if let RecvTimeoutError::Timeout = e {
+                                        println!("Deadlock!")
+                                    }
+
+                                    // Message channel was closed, execution finished
+                                    break;
+                                }
+                            }
+
+                            // Invalid stopping state transition detection
+                            if let Some(s) = &stopping_state {
+                                assert!(state == s, "detected post-stop state transition");
+                            } else if state.is_output() {
+                                stopping_state = Some(state.clone());
+                                stop_atomic.fetch_add(1, Ordering::Relaxed);
+                            }
+
+                            if stop_atomic.load(Ordering::Relaxed) >= node_count as u32 {
+                                println!("Finished!");
+                                break;
+                            }
+                        }
+
+                        // Close channels to notify of completion
+                        senders.into_iter().for_each(|s| drop(s));
+                        receivers.into_iter().for_each(|s| drop(s));
+
+                        println!("Final state: {:?}", state);
+                    });
                 });
-            });
         });
     }
 
     fn print(&self) {
         let pn = |er: EdgeReference<Edge<M>>, source|
-            self.graph.edges(if source { er.source() } else { er.target() })
-                .collect::<Vec<_>>() // TODO: Get rid of this collect
+            self.edges(if source { er.source() } else { er.target() })
                 .into_iter()
-                .rev()
                 .enumerate()
-                .find(|(i, e)| e == &er)
+                .find(|(_, e)| e == &er)
                 .map(|(i, _)| i + 1)
                 .expect("inconsistent edge");
 
@@ -194,20 +238,6 @@ impl<A: PnAlgorithm<S, M>, S: State, M: Message> PnSimulator<A, S, M> {
     }
 }
 
-fn generate_graph() -> Graph<i32, (), Undirected> {
-    let mut graph = Graph::new_undirected();
-    graph.add_node(3);
-    graph.add_node(5);
-    graph.add_node(9);
-    graph.add_node(10);
-    graph.extend_with_edges(&[
-        (0, 2), (0, 1), (0, 3),
-        (1, 2), (1, 3), (2, 3),
-    ].map(|(a, b)| (a, b, ())));
-
-    graph
-}
-
 fn main() {
     println!("Hello, world!");
 
@@ -216,33 +246,8 @@ fn main() {
     let mut simulator: PnSimulator<Algorithm, _, _> = PnSimulator::from_network(&[
         (0, 2), (0, 1), (0, 3),
         (1, 2), (1, 3), (2, 3),
-    ]);
+    ], Duration::from_secs(5));
 
     simulator.run();
-
     simulator.print();
-
-    let mut graph = generate_graph();
-
-    let things = graph.node_weights_mut();
-
-    thread::scope(|s| {
-        things.for_each(|i| {
-            s.spawn(move || {
-                *i += 1;
-                println!("Thing: {:?}", i);
-            });
-        });
-    });
-
-    // handles.for_each(|h| {h.join();});
-
-    // for i in 0..10 {
-    //     thread::spawn(move || {
-    //         println!("{}", i)
-    //     });
-    // }
-
-    // run_simulation(&mut graph);
-    // print_network(&graph);
 }
