@@ -54,6 +54,16 @@ pub struct BpState {
     x_set: HashSet<u32>,
 }
 
+impl BpState {
+    // Helper for Mvc3approx to determine final node state
+    pub fn matched(&self) -> bool {
+        match self.matching_state {
+            Ms(_) => true,
+            _ => false,
+        }
+    }
+}
+
 impl State for BpState {
     fn is_output(&self) -> bool {
         match self.matching_state {
