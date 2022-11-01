@@ -2,13 +2,16 @@ use std::cell::RefCell;
 use std::fmt;
 use crossbeam_channel::{bounded, Receiver, Sender};
 
+/// A `Message` is an object that can be sent over a single edge in the DA state machine
 pub trait Message: fmt::Debug + Send {}
 
+/// A `State` represents a configuration a single node can transition to in the DA state machine
 pub trait State: Clone + fmt::Debug + PartialEq + Send {
-    /// Determines if this state is a stopping state
+    /// Determines if the state is a stopping state
     fn is_output(&self) -> bool;
 }
 
+/// An `Edge` describes a bidirectional communication channel between two nodes
 #[derive(Debug)]
 pub struct Edge<M: Message> {
     channel: RefCell<Option<(Sender<M>, Receiver<M>)>>,
@@ -16,6 +19,8 @@ pub struct Edge<M: Message> {
 }
 
 impl<M: Message> Edge<M> {
+    /// Acquire one endpoint of the edge, the returned `Sender` and `Receiver` pair can be used to
+    /// communicate with the other end
     pub fn endpoint(&self) -> (Sender<M>, Receiver<M>) {
         if let Some((s, r)) = self.channel.take() {
             assert!(!self.connected.replace(true), "attempt to acquire third endpoint for edge");
@@ -29,6 +34,7 @@ impl<M: Message> Edge<M> {
     }
 }
 
+// Manual implementation needed to avoid `Default` dependency on `M`
 impl<M: Message> Default for Edge<M> {
     fn default() -> Self {
         Self {
@@ -44,28 +50,35 @@ impl<M: Message> PartialEq for Edge<M> {
     }
 }
 
+/// Underlying graph/node data to be passed to the `init` function. This is multi-purpose, and as
+/// such algorithms operating in the PN model should disregard fields such as `node_id` as a source
+/// of unique identifiers.
 #[allow(unused)]
-pub struct InitInfo {
-    /// NOTE: Algorithms in the PN model may NOT use `node_id` as a source of unique identifiers
+pub struct Input {
     pub node_id: u32,
     pub node_count: u32,
     pub node_degree: u32,
 }
 
-/// Stateless Port Numbering model algorithm definition.
-pub trait PnAlgorithm<S: State, M: Message> {
-    /// Algorithm-provided iterator type for messages to send.
+/// Programmatic representation of the formal definition of a distributed algorithm
+pub trait DistributedAlgorithm<S: State, M: Message> {
+    /// Algorithm-provided iterator type for a stream of messages to send
     type MsgIter: Iterator<Item=M>;
 
-    /// Algorithm name retrieval function.
+    /// Function to retrieve the name of the algorithm
     fn name() -> String;
 
-    /// Init function of the formal definition of a distributed algorithm.
-    fn init(info: &InitInfo) -> S;
+    /// `init` function of the formal definition of a distributed algorithm. Takes in an input with
+    /// graph/node details (but may choose to ignore it), and returns the initial state of a node.
+    fn init(info: &Input) -> S;
 
-    /// Send function of the formal definition of a distributed algorithm.
+    /// `send` function of the formal definition of a distributed algorithm. Takes in an immutable
+    /// reference to the current state, and must produce an iterator of messages to be sent to each
+    /// port of the node in order.
     fn send(state: &S) -> Self::MsgIter;
 
-    /// Receive function of the formal definition of a distributed algorithm.
+    /// `receive` function of the formal definition of a distributed algorithm. Takes in an
+    /// immutable reference to the current state as well as an iterator with the messages received
+    /// from each port in order, and must produce a new state that the node then transitions to.
     fn receive(state: &S, messages: impl Iterator<Item=M>) -> S;
 }

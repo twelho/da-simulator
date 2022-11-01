@@ -6,17 +6,13 @@ mod simulator;
 
 use types::*;
 use std::time::{Duration};
-use simulator::PnSimulator;
+use simulator::DaSimulator;
 
+/// The main function. Take a look at the edge set format in the given examples to define your own
+/// network, then select it together with the algorithm of your choice below. Run your simulation
+/// with `cargo run --release`.
 fn main() {
-    // 0, 1, 2,  3,  4,   5
-    // 2, 6, 17, 56, 163, 521
-    // 2, 6, 17, 52, 148, 445
-
-    // type Algorithm = algorithms::IsomorphicNeighborhood<0>;
-    // type Algorithm = algorithms::BipartiteMaximalMatching;
-    type Algorithm = algorithms::Mvc3approx;
-
+    // Edge sets for some generic networks
     let _network1 = [
         (0, 2), (0, 1), (0, 3),
         (1, 2), (1, 3), (2, 3),
@@ -32,7 +28,7 @@ fn main() {
         (1, 5), (4, 5), (4, 6), (5, 7), (6, 7)
     ];
 
-    // Some bipartite graphs for testing
+    // Networks that are bipartite wrt. even/odd nodes
     let _bp_network1 = [
         (0, 1), (2, 1), (4, 1), (3, 2), (5, 2)
     ];
@@ -44,8 +40,16 @@ fn main() {
     // A star network
     let _star_network: Vec<_> = (0..10).map(|i| (0, i + 1)).collect();
 
-    let mut simulator: PnSimulator<Algorithm, _, _> =
-        PnSimulator::from_network(&_star_network, Duration::from_secs(5));
+    // Select your algorithm here
+    // type Algorithm = algorithms::IsomorphicNeighborhood<5>;
+    type Algorithm = algorithms::BipartiteMaximalMatching;
+    // type Algorithm = algorithms::Mvc3approx;
+
+    // Select your network here
+    let network = &_bp_network2;
+
+    let mut simulator: DaSimulator<Algorithm, _, _> =
+        DaSimulator::from_network(network, Duration::from_secs(5));
 
     simulator.run();
     simulator.print();
