@@ -27,15 +27,19 @@ impl PnAlgorithm<BpState, BpMessage> for BipartiteMaximalMatching {
     // `impl` convenience requires #![feature(type_alias_impl_trait)] and nightly Rust for now
     type MsgIter = impl Iterator<Item=BpMessage>;
 
-    fn init(info: &InitInfo) -> BpState {
+    fn name() -> String {
+        "Bipartite Maximal Matching".into()
+    }
+
+    fn init(_info: &InitInfo) -> BpState {
         BpState::None // TODO
     }
 
-    fn send(state: &BpState) -> Self::MsgIter {
+    fn send(_state: &BpState) -> Self::MsgIter {
         Box::new(iter::repeat(BpMessage::Some)) // TODO
     }
 
-    fn receive(state: &BpState, mut messages: impl Iterator<Item=BpMessage>) -> BpState {
+    fn receive(_state: &BpState, messages: impl Iterator<Item=BpMessage>) -> BpState {
         match messages.last() {
             None => BpState::None,
             Some(_) => BpState::Some,

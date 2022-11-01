@@ -1,25 +1,27 @@
 #![feature(type_alias_impl_trait)]
 
 mod bipartite;
+mod isomorphic;
 
-use std::{cmp, fmt, thread};
-use std::borrow::BorrowMut;
+use std::{fmt, thread};
+
 use std::cell::RefCell;
 use std::collections::{HashSet, VecDeque};
 use std::marker::PhantomData;
-use std::rc::Rc;
-use std::sync::{Arc, Barrier, Condvar};
-use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
-use std::thread::Thread;
+
+use std::sync::{Arc};
+use std::sync::atomic::{AtomicU32, Ordering};
+
 use std::time::{Duration, Instant};
 use petgraph::dot::{Config, Dot};
 use petgraph::graph::{DefaultIx, EdgeReference};
 use petgraph::prelude::*;
-use crossbeam_channel::{bounded, RecvError, RecvTimeoutError, SendError, SendTimeoutError};
+use crossbeam_channel::{bounded, RecvTimeoutError, SendTimeoutError};
 use crossbeam_channel::{Sender, Receiver};
 use petgraph::IntoWeightedEdge;
-use petgraph::visit::IntoEdgeReferences;
-use crate::bipartite::{BipartiteMaximalMatching, BpMessage, BpState};
+
+use crate::bipartite::{BipartiteMaximalMatching};
+use crate::isomorphic::{IsomorphicNeighborhood};
 
 trait Message: fmt::Debug + Send {}
 
@@ -63,18 +65,27 @@ impl<M: Message> PartialEq for Edge<M> {
     }
 }
 
+#[allow(unused)]
 struct InitInfo {
     node_count: u32,
+    node_degree: u32,
 }
 
+/// Stateless Port Numbering model algorithm definition.
 trait PnAlgorithm<S: State, M: Message> {
+    /// Algorithm-provided iterator type for messages to send.
     type MsgIter: Iterator<Item=M>;
 
+    /// Algorithm name retrieval function.
+    fn name() -> String;
+
+    /// Init function of the formal definition of a distributed algorithm.
     fn init(info: &InitInfo) -> S;
+
+    /// Send function of the formal definition of a distributed algorithm.
     fn send(state: &S) -> Self::MsgIter;
 
-    /// PN state machine receive function. Implementors MUST consume all messages,
-    /// otherwise execution of the algorithm will deadlock (for obvious reasons).
+    /// Receive function of the formal definition of a distributed algorithm.
     fn receive(state: &S, messages: impl Iterator<Item=M>) -> S;
 }
 
@@ -92,13 +103,19 @@ impl<A: PnAlgorithm<S, M>, S: State, M: Message> PnSimulator<A, S, M> {
             .max()
             .expect("no edges given");
 
+        // Figure out the node degrees in advance for the initialization
+        let mut node_degrees = vec![0; node_count as usize];
+        edges.iter().flat_map(|(a, b)| [a, b]).for_each(|i| node_degrees[*i as usize] += 1);
+
         // Create a new undirected graph
         let mut graph = Graph::new_undirected();
 
         // Initialize and add nodes
-        let init_info = InitInfo { node_count };
         let node_indices: Vec<_> = (0..node_count).map(|i|
-            graph.add_node(A::init(&init_info))
+            graph.add_node(A::init(&InitInfo {
+                node_count,
+                node_degree: node_degrees[i as usize],
+            }))
         ).collect();
 
         // Initialize and add edges
@@ -135,6 +152,9 @@ impl<A: PnAlgorithm<S, M>, S: State, M: Message> PnSimulator<A, S, M> {
     }
 
     fn run(&mut self) {
+        println!("\nSimulating the {} algorithm in a PN network with {} nodes and {} edges...",
+                 A::name(), self.graph.node_count(), self.graph.edge_count());
+
         // Acquire the communication channels between nodes from the edges
         let channels: Vec<(Vec<_>, Vec<_>)> = self.graph.node_indices()
             .map(|i| self.edges(i).iter().map(|e| e.weight().endpoint()).unzip())
@@ -148,7 +168,7 @@ impl<A: PnAlgorithm<S, M>, S: State, M: Message> PnSimulator<A, S, M> {
                 .node_weights_mut()
                 .zip(channels.into_iter())
                 .enumerate()
-                .for_each(|(_, (state, (senders, receivers)))| {
+                .for_each(|(i, (state, (senders, receivers)))| {
                     let stop_atomic = Arc::clone(&stop_count);
                     let deadline = Instant::now() + self.timeout;
 
@@ -166,7 +186,7 @@ impl<A: PnAlgorithm<S, M>, S: State, M: Message> PnSimulator<A, S, M> {
                                 None => {}
                                 Some(e) => {
                                     if let SendTimeoutError::Timeout(_) = e {
-                                        println!("Deadlock!")
+                                        eprintln!("Thread {i}: send timeout!")
                                     }
 
                                     // Message channel was closed, execution finished
@@ -183,7 +203,7 @@ impl<A: PnAlgorithm<S, M>, S: State, M: Message> PnSimulator<A, S, M> {
                                 Ok(m) => *state = A::receive(&state, m.into_iter()),
                                 Err(e) => {
                                     if let RecvTimeoutError::Timeout = e {
-                                        println!("Deadlock!")
+                                        println!("Thread {i}: receive timeout!")
                                     }
 
                                     // Message channel was closed, execution finished
@@ -200,7 +220,6 @@ impl<A: PnAlgorithm<S, M>, S: State, M: Message> PnSimulator<A, S, M> {
                             }
 
                             if stop_atomic.load(Ordering::Relaxed) >= node_count as u32 {
-                                println!("Finished!");
                                 break;
                             }
                         }
@@ -208,11 +227,20 @@ impl<A: PnAlgorithm<S, M>, S: State, M: Message> PnSimulator<A, S, M> {
                         // Close channels to notify of completion
                         senders.into_iter().for_each(|s| drop(s));
                         receivers.into_iter().for_each(|s| drop(s));
-
-                        println!("Final state: {:?}", state);
                     });
                 });
         });
+
+        let unfinished = self.graph.node_weights().filter(|s| !s.is_output()).count();
+        if unfinished > 0 {
+            eprintln!(
+                "\nSimulation FAILED! Timeout reached with {} nodes still running, node states in the\n\
+                resulting graph are NOT final! Hint: check for deadlocks or increase the timeout.",
+                unfinished
+            )
+        } else {
+            println!("\nSimulation successful! All nodes reached stopping states.");
+        }
     }
 
     fn print(&self) {
@@ -234,19 +262,35 @@ impl<A: PnAlgorithm<S, M>, S: State, M: Message> PnSimulator<A, S, M> {
             &|_, _| String::new(),
         );
 
-        println!("{:?}", dot);
+        println!("\n{:?}", dot);
     }
 }
 
 fn main() {
-    println!("Hello, world!");
+    // 0, 1, 2,  3,  4,   5
+    // 2, 6, 17, 56, 163, 521
+    // 2, 6, 17, 52, 148, 445
+    // type Algorithm = IsomorphicNeighborhood<0>;
 
     type Algorithm = BipartiteMaximalMatching;
 
-    let mut simulator: PnSimulator<Algorithm, _, _> = PnSimulator::from_network(&[
+    let _network1 = [
         (0, 2), (0, 1), (0, 3),
         (1, 2), (1, 3), (2, 3),
-    ], Duration::from_secs(5));
+    ];
+
+    let _network2 = [
+        (0, 1), (0, 2), (1, 3), (2, 3), (2, 4), (3, 4),
+        (1, 5), (4, 5), (4, 6), (5, 6), (6, 7), (6, 8)
+    ];
+
+    let _network3 = [
+        (0, 1), (0, 2), (1, 3), (2, 3), (2, 4), (3, 4),
+        (1, 5), (4, 5), (4, 6), (5, 7), (6, 7)
+    ];
+
+    let mut simulator: PnSimulator<Algorithm, _, _> =
+        PnSimulator::from_network(&_network2, Duration::from_secs(5));
 
     simulator.run();
     simulator.print();
