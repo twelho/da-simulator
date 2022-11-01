@@ -31,8 +31,17 @@ fn main() {
         (1, 5), (4, 5), (4, 6), (5, 7), (6, 7)
     ];
 
+    // Some bipartite networks for testing
+    let _bp_network1 = [
+        (0, 1), (2, 1), (4, 1), (3, 2), (5, 2)
+    ];
+
+    let _bp_network2 = [
+        (0, 1), (1, 2), (1, 4), (2, 3), (2, 5)
+    ];
+
     let mut simulator: PnSimulator<Algorithm, _, _> =
-        PnSimulator::from_network(&_network2, Duration::from_secs(5));
+        PnSimulator::from_network(&_bp_network2, Duration::from_secs(5));
 
     simulator.run();
     simulator.print();

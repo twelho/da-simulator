@@ -46,6 +46,8 @@ impl<M: Message> PartialEq for Edge<M> {
 
 #[allow(unused)]
 pub struct InitInfo {
+    /// NOTE: Algorithms in the PN model may NOT use `node_id` as a source of unique identifiers
+    pub node_id: u32,
     pub node_count: u32,
     pub node_degree: u32,
 }

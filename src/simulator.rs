@@ -33,12 +33,16 @@ impl<A: PnAlgorithm<S, M>, S: State, M: Message> PnSimulator<A, S, M> {
         let mut graph = Graph::new_undirected();
 
         // Initialize and add nodes
-        let node_indices: Vec<_> = (0..node_count).map(|i|
-            graph.add_node(A::init(&InitInfo {
-                node_count,
-                node_degree: node_degrees[i as usize],
-            }))
-        ).collect();
+        let node_indices: Vec<_> = node_degrees
+            .into_iter()
+            .enumerate()
+            .map(|(node_id, node_degree)|
+                graph.add_node(A::init(&InitInfo {
+                    node_id: node_id as u32,
+                    node_count,
+                    node_degree,
+                }))
+            ).collect();
 
         // Initialize and add edges
         for elt in edges {
@@ -156,7 +160,7 @@ impl<A: PnAlgorithm<S, M>, S: State, M: Message> PnSimulator<A, S, M> {
         let unfinished = self.graph.node_weights().filter(|s| !s.is_output()).count();
         if unfinished > 0 {
             eprintln!(
-                "\nSimulation FAILED! Timeout reached with {} nodes still running, node states in the\n\
+                "\nSimulation FAILED! Timeout reached with {} node(s) still running, node states in the\n\
                 resulting graph are NOT final! Hint: check for deadlocks or increase the timeout.",
                 unfinished
             )
