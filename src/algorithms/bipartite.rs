@@ -1,6 +1,8 @@
 use std::iter;
 use crate::types::{InitInfo, Message, PnAlgorithm, State};
 
+/// Bipartite maximal matching algorithm
+/// TODO: WIP
 pub struct BipartiteMaximalMatching;
 
 #[derive(Clone, Debug, PartialEq)]
