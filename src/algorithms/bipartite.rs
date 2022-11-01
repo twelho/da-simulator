@@ -1,5 +1,5 @@
 use std::iter;
-use crate::{InitInfo, Message, PnAlgorithm, State};
+use crate::types::{InitInfo, Message, PnAlgorithm, State};
 
 pub struct BipartiteMaximalMatching;
 

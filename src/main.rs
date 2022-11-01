@@ -1,93 +1,20 @@
 #![feature(type_alias_impl_trait)]
 
-mod bipartite;
-mod isomorphic;
+mod algorithms;
+mod types;
 
-use std::{fmt, thread};
-
-use std::cell::RefCell;
+use types::*;
+use std::{thread};
 use std::collections::{HashSet, VecDeque};
 use std::marker::PhantomData;
-
 use std::sync::{Arc};
 use std::sync::atomic::{AtomicU32, Ordering};
-
 use std::time::{Duration, Instant};
 use petgraph::dot::{Config, Dot};
 use petgraph::graph::{DefaultIx, EdgeReference};
 use petgraph::prelude::*;
-use crossbeam_channel::{bounded, RecvTimeoutError, SendTimeoutError};
-use crossbeam_channel::{Sender, Receiver};
+use crossbeam_channel::{RecvTimeoutError, SendTimeoutError};
 use petgraph::IntoWeightedEdge;
-
-use crate::bipartite::{BipartiteMaximalMatching};
-use crate::isomorphic::{IsomorphicNeighborhood};
-
-trait Message: fmt::Debug + Send {}
-
-trait State: Clone + fmt::Debug + PartialEq + Send {
-    /// Determines if this state is a stopping state
-    fn is_output(&self) -> bool;
-}
-
-#[derive(Debug)]
-struct Edge<M: Message> {
-    channel: RefCell<Option<(Sender<M>, Receiver<M>)>>,
-    connected: RefCell<bool>,
-}
-
-impl<M: Message> Edge<M> {
-    fn endpoint(&self) -> (Sender<M>, Receiver<M>) {
-        if let Some((s, r)) = self.channel.take() {
-            assert!(!self.connected.replace(true), "attempt to acquire third endpoint for edge");
-            return (s, r);
-        }
-
-        let (s1, r1) = bounded(1);
-        let (s2, r2) = bounded(1);
-        self.channel.replace(Some((s1, r2)));
-        (s2, r1)
-    }
-}
-
-impl<M: Message> Default for Edge<M> {
-    fn default() -> Self {
-        Self {
-            channel: RefCell::default(),
-            connected: RefCell::default(),
-        }
-    }
-}
-
-impl<M: Message> PartialEq for Edge<M> {
-    fn eq(&self, _: &Self) -> bool {
-        true // All the edges are functionally identical and cannot be distinguished on their own
-    }
-}
-
-#[allow(unused)]
-struct InitInfo {
-    node_count: u32,
-    node_degree: u32,
-}
-
-/// Stateless Port Numbering model algorithm definition.
-trait PnAlgorithm<S: State, M: Message> {
-    /// Algorithm-provided iterator type for messages to send.
-    type MsgIter: Iterator<Item=M>;
-
-    /// Algorithm name retrieval function.
-    fn name() -> String;
-
-    /// Init function of the formal definition of a distributed algorithm.
-    fn init(info: &InitInfo) -> S;
-
-    /// Send function of the formal definition of a distributed algorithm.
-    fn send(state: &S) -> Self::MsgIter;
-
-    /// Receive function of the formal definition of a distributed algorithm.
-    fn receive(state: &S, messages: impl Iterator<Item=M>) -> S;
-}
 
 struct PnSimulator<A: PnAlgorithm<S, M>, S: State, M: Message> {
     a: PhantomData<A>,
@@ -270,9 +197,9 @@ fn main() {
     // 0, 1, 2,  3,  4,   5
     // 2, 6, 17, 56, 163, 521
     // 2, 6, 17, 52, 148, 445
-    // type Algorithm = IsomorphicNeighborhood<0>;
+    // type Algorithm = algorithms::IsomorphicNeighborhood<0>;
 
-    type Algorithm = BipartiteMaximalMatching;
+    type Algorithm = algorithms::BipartiteMaximalMatching;
 
     let _network1 = [
         (0, 2), (0, 1), (0, 3),
