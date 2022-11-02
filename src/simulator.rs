@@ -1,3 +1,11 @@
+/*
+ * (c) Dennis Marttinen 2022
+ *
+ * This Source Code Form is subject to the terms of the Mozilla Public
+ * License, v. 2.0. If a copy of the MPL was not distributed with this
+ * file, You can obtain one at https://mozilla.org/MPL/2.0/.
+ */
+
 use std::collections::{HashSet, VecDeque};
 use std::marker::PhantomData;
 use std::sync::Arc;
@@ -11,8 +19,8 @@ use petgraph::graph::{DefaultIx, EdgeReference};
 use petgraph::prelude::*;
 use crate::types::*;
 
-/// A simulator capable of running arbitrary distributed algorithms of various models of computation
-/// (PN, LOCAL, CONGEST) on networks constructed from arbitrary graphs in a parallelized way.
+/// A highly parallel simulator capable of running arbitrary distributed algorithms of various
+/// models of computation (PN, LOCAL, CONGEST) on networks constructed from arbitrary graphs.
 pub struct DaSimulator<A: DistributedAlgorithm<S, M>, S: State, M: Message> {
     a: PhantomData<A>,
     // This is required to keep the algorithm in scope since it is stateless

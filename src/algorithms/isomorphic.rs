@@ -1,5 +1,12 @@
+/*
+ * (c) Dennis Marttinen 2022
+ *
+ * This Source Code Form is subject to the terms of the Mozilla Public
+ * License, v. 2.0. If a copy of the MPL was not distributed with this
+ * file, You can obtain one at https://mozilla.org/MPL/2.0/.
+ */
+
 use std::{fmt, iter};
-use std::fmt::Formatter;
 use crate::{Input, Message, DistributedAlgorithm, State};
 
 /// Isomorphic neighborhood gathering algorithm up to depth D in the PN model. This algorithm it is
@@ -21,7 +28,7 @@ impl<const D: u32> State for InState<D> {
 }
 
 impl<const D: u32> fmt::Debug for InState<D> {
-    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             InState::Count(_, n) => write!(f, "{n}")
         }

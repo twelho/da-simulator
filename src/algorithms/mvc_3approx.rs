@@ -1,5 +1,12 @@
+/*
+ * (c) Dennis Marttinen 2022
+ *
+ * This Source Code Form is subject to the terms of the Mozilla Public
+ * License, v. 2.0. If a copy of the MPL was not distributed with this
+ * file, You can obtain one at https://mozilla.org/MPL/2.0/.
+ */
+
 use std::fmt;
-use std::fmt::Formatter;
 use super::bipartite::{BipartiteMaximalMatching, BpMessage, BpState};
 use crate::types::{Input, Message, DistributedAlgorithm, State};
 
@@ -21,7 +28,7 @@ impl State for Mvc3approxState {
 }
 
 impl fmt::Debug for Mvc3approxState {
-    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         // Output 1 if either of the two virtual nodes ends up matched
         write!(f, "{}", (self.s1.matched() || self.s2.matched()) as u8)
     }

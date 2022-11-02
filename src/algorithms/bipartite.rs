@@ -1,6 +1,13 @@
+/*
+ * (c) Dennis Marttinen 2022
+ *
+ * This Source Code Form is subject to the terms of the Mozilla Public
+ * License, v. 2.0. If a copy of the MPL was not distributed with this
+ * file, You can obtain one at https://mozilla.org/MPL/2.0/.
+ */
+
 use std::{fmt, iter};
 use std::collections::HashSet;
-use std::fmt::Formatter;
 use super::bipartite::NodeColor::*;
 use super::bipartite::MatchingState::*;
 use crate::types::{Input, Message, DistributedAlgorithm, State};
@@ -41,7 +48,7 @@ enum MatchingState {
 }
 
 impl fmt::Debug for MatchingState {
-    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Ur => write!(f, "UR"),
             Mr(i) => write!(f, "MR({})", i + 1),
@@ -83,7 +90,7 @@ impl State for BpState {
 }
 
 impl fmt::Debug for BpState {
-    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         self.matching_state.fmt(f)
     }
 }
