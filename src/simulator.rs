@@ -90,8 +90,9 @@ impl<A: DistributedAlgorithm<S, M>, S: State, M: Message> DaSimulator<A, S, M> {
         vd.into()
     }
 
-    /// Run the simulation
-    pub fn run(&mut self) {
+    /// Run the simulation, optionally terminating after `round_limit` communication rounds if
+    /// `round_limit > 0`. If `round_limit == 0`, run until natural termination.
+    pub fn run(&mut self, round_limit: u32) {
         println!("\nSimulating the {} algorithm in a PN network with {} nodes and {} edges...",
                  A::name(), self.graph.node_count(), self.graph.edge_count());
 
@@ -121,6 +122,7 @@ impl<A: DistributedAlgorithm<S, M>, S: State, M: Message> DaSimulator<A, S, M> {
                     s.spawn(move || {
                         // Track the stopping state for detecting invalid transitions after stopping
                         let mut stopping_state: Option<S> = None;
+                        let mut iterations = 0;
 
                         loop {
                             // Send messages based on the current state to all neighbors
@@ -173,6 +175,12 @@ impl<A: DistributedAlgorithm<S, M>, S: State, M: Message> DaSimulator<A, S, M> {
 
                             // If all nodes have reached a stopping state, stop the simulation
                             if stop_atomic.load(Ordering::Relaxed) >= node_count as u32 {
+                                break;
+                            }
+
+                            // (Optional) communication round limiting
+                            iterations += 1;
+                            if round_limit > 0 && iterations >= round_limit {
                                 break;
                             }
                         }

@@ -28,6 +28,10 @@ fn main() {
         (1, 5), (4, 5), (4, 6), (5, 7), (6, 7)
     ];
 
+    let _triangle = [
+        (0, 1), (1, 2), (0, 2)
+    ];
+
     // Networks that are bipartite wrt. even/odd nodes
     let _bp_network1 = [
         (0, 1), (2, 1), (4, 1), (3, 2), (5, 2)
@@ -37,20 +41,24 @@ fn main() {
         (0, 1), (1, 2), (1, 4), (2, 3), (2, 5)
     ];
 
+    let _square = [
+        (0, 1), (1, 2), (2, 3), (0, 3)
+    ];
+
     // A star network
     let _star_network: Vec<_> = (0..10).map(|i| (0, i + 1)).collect();
 
     // Select your algorithm here
     // type Algorithm = algorithms::IsomorphicNeighborhood<5>;
-    type Algorithm = algorithms::BipartiteMaximalMatching;
-    // type Algorithm = algorithms::Mvc3approx;
+    // type Algorithm = algorithms::BipartiteMaximalMatching;
+    type Algorithm = algorithms::Mvc3approx;
 
     // Select your network here
-    let network = &_bp_network2;
+    let network = &_network2;
 
     let mut simulator: DaSimulator<Algorithm, _, _> =
         DaSimulator::from_network(network, Duration::from_secs(5));
 
-    simulator.run();
+    simulator.run(0);
     simulator.print();
 }
