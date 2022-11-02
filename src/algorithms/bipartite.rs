@@ -138,8 +138,9 @@ impl DistributedAlgorithm<BpState, BpMessage> for BipartiteMaximalMatching {
         // values to determine the conditions of taking the branch. By default, send `Noop` messages
         // to all neighbors.
         match state {
-            BpState { degree, color: White, round, matching_state: Ur, .. } if round % 2 == 0 && round < degree => {
-                let r = *round; // Clone by dereference
+            BpState { degree, color: White, round, matching_state: Ur, .. } if round % 2 == 0 && round / 2 < *degree => {
+                // In the original algorithm this is implemented using 2k, here we divide instead
+                let r = round / 2;
                 Box::new((0..).map(move |i| if i == r { BpMessage::Proposal } else { BpMessage::Noop }))
             }
             BpState { color: White, round, matching_state: Mr(_), .. } if round % 2 == 0 => {
@@ -173,7 +174,7 @@ impl DistributedAlgorithm<BpState, BpMessage> for BipartiteMaximalMatching {
         // additional modifications to the resulting state.
         match state {
             // White nodes
-            BpState { degree, color: White, round, matching_state: Ur, .. } if round % 2 == 0 && round + 1 > *degree => {
+            BpState { degree, color: White, round, matching_state: Ur, .. } if round % 2 == 0 && round / 2 + 1 > *degree => {
                 result.matching_state = Us;
             }
             BpState { color: White, round, matching_state: Mr(i), .. } if round % 2 == 0 => {
