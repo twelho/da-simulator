@@ -172,7 +172,7 @@ impl<A: DistributedAlgorithm<S, M>, S: State, M: Message> DaSimulator<A, S, M> {
 
                             if let Some(s) = &stopping_state {
                                 // Invalid stopping state transition detection
-                                assert!(state == s, "detected post-stop state transition");
+                                assert_eq!(state, s, "detected post-stop state transition");
                             } else if state.is_output() {
                                 stopping_state = Some(state.clone());
 
